@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.fileconverter"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -30,6 +30,16 @@ android {
         compose = true
     }
     packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+            excludes += "/META-INF/*.kotlin_module"
+            excludes += "/META-INF/{NOTICE,LICENSE,DEPENDENCIES}*"
+
+            excludes += "license/**"
+        }
         jniLibs {
             useLegacyPackaging = true
         }
@@ -52,10 +62,22 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation("androidx.compose.material:material-icons-extended")
 
-    // FFmpeg и DocumentFile
+    // FFmpeg
     implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7")
     implementation("com.arthenica:smart-exception-java:0.2.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
+
+    // PDFBox и POI для PDF -> DOCX
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+    implementation("org.apache.logging.log4j:log4j-api:2.20.0")
+
+    configurations.all {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+        exclude(group = "org.slf4j", module = "slf4j-simple")
+        exclude(group = "org.slf4j", module = "jcl-over-slf4j")
+        exclude(group = "commons-logging", module = "commons-logging")
+    }
 
     debugImplementation(libs.androidx.ui.tooling)
 }

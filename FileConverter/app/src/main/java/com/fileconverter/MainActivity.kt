@@ -12,6 +12,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.fileconverter.ui.theme.FileConverterTheme
 
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
@@ -21,8 +23,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        
+        PDFBoxResourceLoader.init(applicationContext)
 
+        enableEdgeToEdge()
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestPermissionLauncher.launch(arrayOf(
                 Manifest.permission.READ_MEDIA_IMAGES,
@@ -40,6 +45,11 @@ class MainActivity : ComponentActivity() {
             ))
         }
 
+        System.setProperty("org.apache.poi.javax.xml.stream.XMLInputFactory", "com.fasterxml.aalto.stax.InputFactoryImpl")
+        System.setProperty("org.apache.poi.javax.xml.stream.XMLOutputFactory", "com.fasterxml.aalto.stax.OutputFactoryImpl")
+        System.setProperty("org.apache.poi.javax.xml.stream.XMLEventFactory", "com.fasterxml.aalto.stax.EventFactoryImpl")
+
+        // 3. Запуск интерфейса
         setContent {
             FileConverterTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

@@ -24,9 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.apache.poi.xwpf.usermodel.XWPFDocument
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -68,27 +71,27 @@ fun ConverterScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundBlue)
-            .padding(24.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceEvenly
     ) {
         Text(
             text = "File Converter",
-            fontSize = 32.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = TextWhite
         )
 
         // Блок выбора файла
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "Выбранный файл:", color = TextWhite, fontSize = 16.sp)
+            Text(text = "Выбранный файл:", color = TextWhite, fontSize = 14.sp)
             Text(
                 text = selectedFileName,
                 color = TextWhite,
                 fontWeight = FontWeight.Medium,
-                fontSize = 18.sp
+                fontSize = 16.sp
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(8.dp))
             Button(
                 onClick = { filePicker.launch("*/*") },
                 shape = RoundedCornerShape(0.dp),
@@ -101,7 +104,7 @@ fun ConverterScreen() {
 
         // Блок выбора формата
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Конвертировать в:", color = TextWhite, fontSize = 16.sp)
+            Text("Конвертировать в:", color = TextWhite, fontSize = 14.sp)
             Spacer(Modifier.height(8.dp))
 
             val formatsRow1 = listOf("png", "jpg", "webp", "gif")
@@ -118,14 +121,17 @@ fun ConverterScreen() {
                     FormatButton(format = format, isSelected = targetFormat == format, onClick = { targetFormat = format })
                 }
             }
+
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                FormatButton(format = "docx", isSelected = targetFormat == "docx", onClick = { targetFormat = "docx" })
+            }
         }
 
         // Статус / Результат
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
+            modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
         ) {
             if (isConverting) {
                 CircularProgressIndicator(color = TextWhite)
@@ -138,7 +144,7 @@ fun ConverterScreen() {
                     text = resultMessage!!,
                     color = TextWhite,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 12.sp
                 )
             }
         }
@@ -173,11 +179,9 @@ fun ConverterScreen() {
                 containerColor = ButtonRoyalBlue,
                 disabledContainerColor = Color.Gray
             ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(48.dp)
         ) {
-            Text("Начать конвертацию", color = TextWhite, fontSize = 18.sp)
+            Text("Начать конвертацию", color = TextWhite, fontSize = 16.sp)
         }
     }
 }
@@ -191,10 +195,10 @@ fun FormatButton(format: String, isSelected: Boolean, onClick: () -> Unit) {
             containerColor = if (isSelected) Color.White else ButtonRoyalBlue,
             contentColor = if (isSelected) BackgroundBlue else TextWhite
         ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        modifier = Modifier.height(40.dp)
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.height(36.dp)
     ) {
-        Text(format.uppercase(), fontWeight = FontWeight.Bold)
+        Text(format.uppercase(), fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 
@@ -209,125 +213,105 @@ suspend fun convertFile(
 ) {
     withContext(Dispatchers.IO) {
         try {
-            // 1. Сохраняем исходный файл в кэш
             val inputFile = File(context.cacheDir, "input_${UUID.randomUUID()}.tmp")
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
-                FileOutputStream(inputFile).use { output ->
-                    input.copyTo(output)
-                }
+                FileOutputStream(inputFile).use { output -> input.copyTo(output) }
             }
 
-            // 2. Создаем временный выходной файл
             val tempOutputFile = File(context.cacheDir, "converted_${System.currentTimeMillis()}.$targetFormat")
 
-            // Проверяем, является ли входной файл картинкой или аудио
-            val isImageInput = sourceFileName.endsWith(".png", true) ||
-                    sourceFileName.endsWith(".jpg", true) ||
-                    sourceFileName.endsWith(".jpeg", true) ||
-                    sourceFileName.endsWith(".webp", true)
+            // --- ЛОГИКА PDF -> DOCX (Извлечение текста) ---
+            if (targetFormat == "docx" && sourceFileName.endsWith(".pdf", true)) {
+                try {
+                    val pdfDocument = PDDocument.load(inputFile)
+                    val doc = XWPFDocument()
+                    val text = PDFTextStripper().getText(pdfDocument)
 
-            val isAudioInput = sourceFileName.endsWith(".mp3", true) ||
-                    sourceFileName.endsWith(".wav", true) ||
-                    sourceFileName.endsWith(".flac", true)
+                    val paragraph = doc.createParagraph()
+                    val run = paragraph.createRun()
+                    run.setText(text)
 
-            // 3. Если нужен WebP и на входе картинка - используем встроенный кодек Android
-            if (targetFormat == "webp" && isImageInput) {
-                val success = convertImageToWebp(inputFile, tempOutputFile)
-                if (success) {
-                    val savedFileName = saveFileToDownloads(context, tempOutputFile, "webp")
-                    inputFile.delete()
-                    tempOutputFile.delete()
+                    val outputStream = FileOutputStream(tempOutputFile)
+                    doc.write(outputStream)
+                    outputStream.close()
+                    pdfDocument.close()
+                    doc.close()
 
-                    withContext(Dispatchers.Main) {
-                        if (savedFileName != null) onResult("Успешно! Файл сохранен в Downloads:\n$savedFileName")
-                        else onResult("Ошибка при сохранении в Downloads")
-                    }
+                    saveAndFinish(context, tempOutputFile, inputFile, "docx", onResult)
+                    return@withContext
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { onResult("Ошибка PDF->DOCX: ${e.message}") }
                     return@withContext
                 }
             }
 
-            // 4. Формируем команду FFmpeg для остальных случаев
+            // --- ЛОГИКА ДЛЯ WEBP (Android Bitmap) ---
+            val isImageInput = sourceFileName.endsWith(".png", true) || sourceFileName.endsWith(".jpg", true) || sourceFileName.endsWith(".jpeg", true) || sourceFileName.endsWith(".webp", true)
+            if (targetFormat == "webp" && isImageInput) {
+                val bitmap = BitmapFactory.decodeFile(inputFile.absolutePath)
+                if (bitmap != null) {
+                    val outputStream = FileOutputStream(tempOutputFile)
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP, 80, outputStream)
+                    outputStream.close()
+                    bitmap.recycle()
+                    saveAndFinish(context, tempOutputFile, inputFile, "webp", onResult)
+                    return@withContext
+                }
+            }
+
+            // --- ЛОГИКА FFMPEG (Медиа) ---
+            val isAudioInput = sourceFileName.endsWith(".mp3", true) || sourceFileName.endsWith(".wav", true) || sourceFileName.endsWith(".flac", true)
+
             val command = when (targetFormat) {
                 "mp4" -> "-y -i ${inputFile.absolutePath} -c:v mpeg4 -q:v 5 -c:a aac -b:a 128k ${tempOutputFile.absolutePath}"
                 "mp3" -> "-y -i ${inputFile.absolutePath} -vn -ar 44100 -ac 2 -b:a 192k ${tempOutputFile.absolutePath}"
                 "wav" -> "-y -i ${inputFile.absolutePath} -vn -c:a pcm_s16le ${tempOutputFile.absolutePath}"
                 "flac" -> "-y -i ${inputFile.absolutePath} -vn -c:a flac ${tempOutputFile.absolutePath}"
                 "gif" -> "-y -i ${inputFile.absolutePath} -vf \"fps=10,scale=480:-1:flags=lanczos\" -loop 0 ${tempOutputFile.absolutePath}"
-                "webp" -> "-y -i ${inputFile.absolutePath} -c:v webp -quality 80 ${tempOutputFile.absolutePath}" // Для видео в WebP (может упасть)
+                "webp" -> "-y -i ${inputFile.absolutePath} -c:v webp -quality 80 ${tempOutputFile.absolutePath}"
                 "png", "jpg" -> {
-                    if (isAudioInput) {
-                        // Если на входе аудио, рисуем звуковую волну
-                        "-y -i ${inputFile.absolutePath} -filter_complex \"showwavespic=s=800x400:colors=white\" -frames:v 1 -update 1 ${tempOutputFile.absolutePath}"
-                    } else {
-                        // Если картинка или видео - берем первый кадр
-                        "-y -i ${inputFile.absolutePath} -frames:v 1 -update 1 ${tempOutputFile.absolutePath}"
-                    }
+                    if (isAudioInput) "-y -i ${inputFile.absolutePath} -filter_complex \"showwavespic=s=800x400:colors=white\" -frames:v 1 -update 1 ${tempOutputFile.absolutePath}"
+                    else "-y -i ${inputFile.absolutePath} -frames:v 1 -update 1 ${tempOutputFile.absolutePath}"
                 }
                 else -> "-y -i ${inputFile.absolutePath} -frames:v 1 -update 1 ${tempOutputFile.absolutePath}"
             }
 
-            // 5. Выполняем
             val session = FFmpegKit.execute(command)
-
             if (ReturnCode.isSuccess(session.returnCode) && tempOutputFile.exists()) {
-                val savedFileName = saveFileToDownloads(context, tempOutputFile, targetFormat)
-                inputFile.delete()
-                tempOutputFile.delete()
-
-                withContext(Dispatchers.Main) {
-                    if (savedFileName != null) onResult("Успешно! Файл сохранен в Downloads:\n$savedFileName")
-                    else onResult("Ошибка при сохранении в Downloads")
-                }
+                saveAndFinish(context, tempOutputFile, inputFile, targetFormat, onResult)
             } else {
                 val failLog = session.failStackTrace ?: "Неизвестная ошибка"
-                val shortLog = if (failLog.length > 200) failLog.take(200) + "..." else failLog
-                withContext(Dispatchers.Main) {
-                    onResult("Ошибка FFmpeg:\n$shortLog")
-                }
+                withContext(Dispatchers.Main) { onResult("Ошибка FFmpeg: ${failLog.take(100)}...") }
             }
 
         } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                onResult("Системная ошибка:\n${e.message}")
-            }
+            withContext(Dispatchers.Main) { onResult("Ошибка: ${e.message}") }
         }
     }
 }
 
-// Вспомогательная функция: кодирование картинки в WebP системным кодеком Android
-fun convertImageToWebp(inputFile: File, outputFile: File): Boolean {
-    return try {
-        val bitmap = BitmapFactory.decodeFile(inputFile.absolutePath)
-        if (bitmap == null) return false
-
-        val outputStream = FileOutputStream(outputFile)
-        // 80 — качество (от 0 до 100)
-        val success = bitmap.compress(android.graphics.Bitmap.CompressFormat.WEBP, 80, outputStream)
-        outputStream.close()
-        bitmap.recycle()
-        success
-    } catch (e: Exception) {
-        false
+suspend fun saveAndFinish(context: Context, tempOutputFile: File, inputFile: File, ext: String, onResult: (String) -> Unit) {
+    val savedFileName = saveFileToDownloads(context, tempOutputFile, ext)
+    inputFile.delete()
+    tempOutputFile.delete()
+    withContext(Dispatchers.Main) {
+        if (savedFileName != null) onResult("Успешно! Сохранено:\n$savedFileName")
+        else onResult("Ошибка сохранения")
     }
 }
 
-// Вспомогательная функция для сохранения файла в папку Downloads
 fun saveFileToDownloads(context: Context, file: File, extension: String): String? {
     val fileName = "converted_${System.currentTimeMillis()}.$extension"
-
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
             put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
             put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
         }
-
         val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
         if (uri != null) {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                file.inputStream().use { inputStream ->
-                    inputStream.copyTo(outputStream)
-                }
+                file.inputStream().use { inputStream -> inputStream.copyTo(outputStream) }
             }
             return fileName
         }
